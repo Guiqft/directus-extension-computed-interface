@@ -1,3 +1,4 @@
+import { formatNumber, parseNumber } from '@brightspace-ui/intl';
 import { findValueByPath } from './utils';
 
 export function parseExpression(exp: string, values: Record<string, any>): any {
@@ -21,7 +22,7 @@ export function parseExpression(exp: string, values: Record<string, any>): any {
 					return parseInt(valueA);
 				}
 				if (op === 'FLOAT') {
-					return parseFloat(valueA);
+					return parseNumber(String(valueA));
 				}
 				if (op === 'STRING') {
 					return String(valueA);
@@ -34,7 +35,7 @@ export function parseExpression(exp: string, values: Record<string, any>): any {
 					return toSlug(valueA);
 				}
 				if (op === 'CURRENCY') {
-					return new Intl.NumberFormat().format(valueA);
+					return formatNumber(valueA, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 				}
 				// date
 				if (op === 'DATE_ISO') {
