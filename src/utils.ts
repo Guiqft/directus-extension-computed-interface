@@ -44,22 +44,29 @@ export const useDeepValues = (
 	template: string
 ) => {
 	const api = useApi();
+	const initialValues = ref();
 	const finalValues = ref<Record<string, any>>({});
 	let fieldCache: Record<string, any> = {};
 	let itemCache: Record<string, any> = {};
 	// Directus store o2m value as reference so when o2m updated, val & oldVal in watch are the same.
 	// This will serialize values so when o2m fields are updated, their changes can be seen.
-	const cloneValues = computed(() => JSON.stringify(
-		values.value,
-		(k, v) => v === undefined ? null : v, // convert all undefined values to null to prevent JSON.stringify from removing their keys
-	));
+	const cloneValues = computed(() =>
+		JSON.stringify(
+			values.value,
+			(k, v) => (v === undefined ? null : v) // convert all undefined values to null to prevent JSON.stringify from removing their keys
+		)
+	);
 
 	watch(
 		cloneValues,
 		async (val, oldVal) => {
+			if (!initialValues.value) {
+				initialValues.value = await getInitialValues(api, collection);
+			}
 			const valObj = JSON.parse(val);
 			const oldValObj = oldVal !== undefined ? JSON.parse(oldVal) : {};
-			if (!shouldUpdate(template, computedField, valObj, oldValObj)) {
+			const currentVal = { ...initialValues.value, ...valObj };
+			if (!shouldUpdate(template, computedField, currentVal, oldValObj)) {
 				return;
 			}
 
@@ -75,7 +82,7 @@ export const useDeepValues = (
 				const isM2O = relation.collection === collection;
 				const fieldName = isM2O ? relation.meta?.many_field : relation.meta?.one_field;
 
-				let fieldChanges = values.value[fieldName!] as IRelationUpdate ?? {
+				let fieldChanges = (values.value[fieldName!] as IRelationUpdate) ?? {
 					create: [],
 					update: [],
 					delete: [],
@@ -114,11 +121,13 @@ export const useDeepValues = (
 						if (key in fieldCache) {
 							data = fieldCache[key];
 						} else {
-							data = (await api.get(`items/${collection}/${pk}`, {
-								params: {
-									fields: [key],
-								},
-							})).data.data[key];
+							data = (
+								await api.get(`items/${collection}/${pk}`, {
+									params: {
+										fields: [key],
+									},
+								})
+							).data.data[key];
 							fieldCache[key] = data;
 						}
 						arrayOfIds = arrayOfIds.concat(data);
@@ -139,12 +148,14 @@ export const useDeepValues = (
 
 					if (relatedCollection) {
 						let data;
-						if (relatedCollection in itemCache && arrayOfIds.every(id => id in itemCache[relatedCollection])) {
-							data = arrayOfIds.map(id => itemCache[relatedCollection][id]);
+						if (relatedCollection in itemCache && arrayOfIds.every((id) => id in itemCache[relatedCollection])) {
+							data = arrayOfIds.map((id) => itemCache[relatedCollection][id]);
 						} else {
-							data = (await api.get(path, {
-								params: { filter: { id: { _in: arrayOfIds } } },
-							})).data.data;
+							data = (
+								await api.get(path, {
+									params: { filter: { id: { _in: arrayOfIds } } },
+								})
+							).data.data;
 						}
 
 						// merging item updates
@@ -171,7 +182,7 @@ export const useDeepValues = (
 				relationalData[key] = isM2O ? arrayOfData[0] : arrayOfData;
 			}
 
-			finalValues.value = { ...values.value, ...relationalData };
+			finalValues.value = { ...currentVal, ...relationalData };
 		},
 		{
 			deep: false,
@@ -192,4 +203,20 @@ export const findValueByPath = (obj: Record<string, any>, path: string) => {
 		}
 	}
 	return { value, found: true };
+};
+
+const getInitialValues = async (api: any, collection: string) => {
+	const defaults = {};
+	const {
+		data: { data },
+	} = await api.get(`fields/${collection}`);
+
+	const fields = data.map((el: any) => el.field);
+	for (const field of fields) {
+		const {
+			data: { data },
+		} = await api.get(`fields/${collection}/${field}`);
+		Object.assign(defaults, { [field]: data.schema?.default_value ?? null });
+	}
+	return defaults;
 };
